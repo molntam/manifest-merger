@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>Manifest Merger – DN Extractor tests</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f7f9fc;
+      color: #1f2a44;
+      margin: 0;
+      padding: 2rem;
+    }
+    h1 {
+      color: #003b71;
+      margin-top: 0;
+    }
+    #summary {
+      font-weight: 700;
+      margin: 1rem 0;
+    }
+    #summary.ok { color: #1f7a3a; }
+    #summary.fail { color: #b3261e; }
+    ol {
+      background: #ffffff;
+      border-radius: 8px;
+      padding: 1rem 1rem 1rem 2.5rem;
+      box-shadow: 0 4px 12px rgba(0, 59, 113, 0.08);
+    }
+    li { margin: 0.25rem 0; }
+    li.pass { color: #1f7a3a; }
+    li.fail { color: #b3261e; }
+    .err {
+      display: block;
+      font-family: monospace;
+      background: #fff5f5;
+      color: #7a1a13;
+      padding: 0.4rem 0.6rem;
+      margin-top: 0.25rem;
+      border-radius: 4px;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <h1>DN Extractor tests</h1>
+  <div id="summary">Running…</div>
+  <ol id="results"></ol>
+
+  <script>
+    window.__renderDNExtractorTestResults = function (summary) {
+      const summaryEl = document.getElementById('summary');
+      const list = document.getElementById('results');
+      summaryEl.textContent =
+        summary.passed + '/' + summary.total + ' passed, ' + summary.failed + ' failed.';
+      summaryEl.className = summary.failed === 0 ? 'ok' : 'fail';
+      list.innerHTML = '';
+      for (const r of summary.results) {
+        const li = document.createElement('li');
+        li.className = r.passed ? 'pass' : 'fail';
+        li.textContent = (r.passed ? 'PASS' : 'FAIL') + ' — ' + r.name;
+        if (!r.passed) {
+          const err = document.createElement('span');
+          err.className = 'err';
+          err.textContent = r.error;
+          li.appendChild(err);
+        }
+        list.appendChild(li);
+      }
+    };
+  </script>
+  <script src="dn-extractor.js"></script>
+  <script src="tests/dn-extractor.test.js"></script>
+</body>
+</html>
