@@ -224,7 +224,7 @@ async function extractQRCodeFromPage(page) {
 }
 
 //  PDF parsing & QR + Transport collection 
-async function extractFromPDF(file) {
+async function extractFromPDF(file, fastMode) {
     const buf = await file.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({
         data: buf
@@ -308,12 +308,14 @@ async function extractFromPDF(file) {
         });
 
         // extract QR
-        const qrUrl = await extractQRCodeFromPage(pg);
-        if (qrUrl) {
-            qrEntries.push({
-                loadingList: currentLoadingList,
-                dataUrl: qrUrl
-            });
+        if (!fastMode) {
+            const qrUrl = await extractQRCodeFromPage(pg);
+            if (qrUrl) {
+                qrEntries.push({
+                    loadingList: currentLoadingList,
+                    dataUrl: qrUrl
+                });
+            }
         }
     }
 }
@@ -332,13 +334,14 @@ async function generatePDF() {
     qrEntries = [];
     transportEntries = [];
 
+    const fastMode = document.getElementById('fastMode')?.checked ?? true;
     const files = Array.from(fileInput.files);
     if (!files.length) {
         alert('Select at least one PDF');
         return;
     }
     for (let f of files) {
-        await extractFromPDF(f);
+        await extractFromPDF(f, fastMode);
     }
 
     // unique services
@@ -429,7 +432,7 @@ async function generatePDF() {
 
 
     //  qr page
-    if (qrEntries.length) {
+    if (!fastMode && qrEntries.length) {
         const qrSize = 70;
         const barcodeW = 100;
         const barcodeH = 20;
