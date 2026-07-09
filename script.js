@@ -23,6 +23,11 @@ const COL_WIDTHS = [50, 60, 80, 70, 90, 130, 70, 110, 45, 75];
 const TABLE_W = COL_WIDTHS.reduce((a, b) => a + b, 0);
 const VALID_CODES = [];
 
+// Column index of "Order number, Reference no." in COL_HEADERS / data.rows[i].
+// Used by the DN order-number extraction to pull the right column out of the
+// processed merged data (not by re-reading the generated PDF).
+const ORDER_NUMBER_COL_IDX = 2;
+
 let pdfFiles = [];
 let qrEntries = [];
 let transportEntries = [];
@@ -35,6 +40,12 @@ const fileList = document.getElementById('file-list');
 const mergeBtn = document.getElementById('merge-btn');
 const removeAllBtn = document.getElementById('remove-all-btn');
 const outputFilename = document.getElementById('outputFilename');
+
+// DN order-number extraction UI
+const dnOutput = document.getElementById('dn-output');
+const dnCopyBtn = document.getElementById('dn-copy-btn');
+const dnStatus = document.getElementById('dn-status');
+let dnStatusResetTimer = null;
 
 dropArea.addEventListener('dragover', e => {
     e.preventDefault();
@@ -105,6 +116,117 @@ function hideOverlay() {
     document.getElementById('loader-overlay').classList.remove('show');
 }
 
+// ── DN order-number UI helpers ───────────────────────────────────────────
+// The extraction logic itself lives in dn-extractor.js. These helpers only
+// deal with reflecting extraction results in the DOM.
+
+function setDNStatus(message, tone) {
+    if (!dnStatus) return;
+    dnStatus.textContent = message || '';
+    dnStatus.classList.remove('error', 'success');
+    if (tone === 'error') dnStatus.classList.add('error');
+    if (tone === 'success') dnStatus.classList.add('success');
+}
+
+function clearDNSection() {
+    if (dnStatusResetTimer) {
+        clearTimeout(dnStatusResetTimer);
+        dnStatusResetTimer = null;
+    }
+    if (dnOutput) dnOutput.value = '';
+    if (dnCopyBtn) {
+        dnCopyBtn.disabled = true;
+        dnCopyBtn.textContent = 'Copy all';
+        dnCopyBtn.classList.remove('copied');
+    }
+    setDNStatus('');
+}
+
+function renderDNNumbers(numbers) {
+    if (!dnOutput) return;
+    const list = Array.isArray(numbers) ? numbers : [];
+    dnOutput.value = list.join('\n');
+    if (dnCopyBtn) {
+        dnCopyBtn.disabled = list.length === 0;
+        dnCopyBtn.textContent = 'Copy all';
+        dnCopyBtn.classList.remove('copied');
+    }
+    if (list.length === 0) {
+        setDNStatus('No DN order numbers found.');
+    } else {
+        setDNStatus(`${list.length} unique DN order number${list.length === 1 ? '' : 's'} extracted.`);
+    }
+}
+
+function runDNExtractionFromRows(rows) {
+    try {
+        if (!window.DNExtractor || typeof window.DNExtractor.extractUniqueDNNumbers !== 'function') {
+            console.warn('DNExtractor is not available; skipping DN order-number extraction.');
+            setDNStatus('DN extraction unavailable.', 'error');
+            return;
+        }
+        const values = (rows || []).map(r => (r && r.length > ORDER_NUMBER_COL_IDX) ? r[ORDER_NUMBER_COL_IDX] : '');
+        const numbers = window.DNExtractor.extractUniqueDNNumbers(values);
+        renderDNNumbers(numbers);
+    } catch (err) {
+        console.error('Failed to extract DN order numbers:', err);
+        setDNStatus('Failed to extract DN order numbers. See console for details.', 'error');
+    }
+}
+
+async function copyDNNumbersToClipboard() {
+    if (!dnOutput || !dnCopyBtn || dnCopyBtn.disabled) return;
+    const text = dnOutput.value;
+    if (!text) return;
+
+    const showCopied = () => {
+        dnCopyBtn.textContent = 'Copied';
+        dnCopyBtn.classList.add('copied');
+        setDNStatus('Copied to clipboard.', 'success');
+        if (dnStatusResetTimer) clearTimeout(dnStatusResetTimer);
+        dnStatusResetTimer = setTimeout(() => {
+            dnCopyBtn.textContent = 'Copy all';
+            dnCopyBtn.classList.remove('copied');
+            // Restore the neutral "N unique DN order numbers extracted." message
+            // once the transient "Copied" feedback disappears.
+            const count = text.split('\n').filter(Boolean).length;
+            setDNStatus(`${count} unique DN order number${count === 1 ? '' : 's'} extracted.`);
+        }, 1800);
+    };
+
+    try {
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+            await navigator.clipboard.writeText(text);
+            showCopied();
+            return;
+        }
+    } catch (err) {
+        console.warn('navigator.clipboard.writeText failed, falling back to execCommand:', err);
+    }
+
+    // Fallback for older browsers / non-secure contexts.
+    try {
+        const prevSelectionStart = dnOutput.selectionStart;
+        const prevSelectionEnd = dnOutput.selectionEnd;
+        dnOutput.focus();
+        dnOutput.select();
+        const ok = document.execCommand && document.execCommand('copy');
+        dnOutput.setSelectionRange(prevSelectionStart, prevSelectionEnd);
+        if (ok) {
+            showCopied();
+        } else {
+            setDNStatus('Copy failed. Please copy manually.', 'error');
+        }
+    } catch (err) {
+        console.error('Fallback clipboard copy failed:', err);
+        setDNStatus('Copy failed. Please copy manually.', 'error');
+    }
+}
+
+if (dnCopyBtn) {
+    dnCopyBtn.addEventListener('click', copyDNNumbersToClipboard);
+}
+
 mergeBtn.addEventListener('click', async () => {
     if (!pdfFiles.length) {
         return alert('Please select PDF files first.');
@@ -112,11 +234,21 @@ mergeBtn.addEventListener('click', async () => {
     const dt = new DataTransfer();
     pdfFiles.forEach(f => dt.items.add(f));
     fileInput.files = dt.files;
+    // Clear any previous DN extraction results before starting a new merge so
+    // stale data cannot linger if this merge fails or produces no matches.
+    clearDNSection();
     showOverlay();
+    let mergeSucceeded = false;
     try {
         await generatePDF();
+        mergeSucceeded = true;
     } finally {
         hideOverlay();
+    }
+    if (mergeSucceeded) {
+        // Extraction runs only after a successful merge, and is defensively
+        // wrapped so any failure here cannot break the merge / file-save flow.
+        runDNExtractionFromRows(data && data.rows);
     }
 });
 

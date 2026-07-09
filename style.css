@@ -173,6 +173,95 @@ h1 {
  color: #ffffff;
 }
 
+/* DN EXTRACTION SECTION */
+#dn-section {
+ width: 100%;
+ max-width: 800px;
+ margin: 0 auto 2rem;
+ padding: 1rem 1.25rem;
+ background: #ffffff;
+ border-radius: 12px;
+ box-shadow: 0 6px 20px rgba(0, 59, 113, 0.1);
+}
+
+#dn-section-header {
+ display: flex;
+ align-items: center;
+ justify-content: space-between;
+ gap: 1rem;
+ margin-bottom: 0.75rem;
+}
+
+#dn-section-title {
+ margin: 0;
+ font-size: 1.05rem;
+ color: #003b71;
+ font-weight: 700;
+}
+
+#dn-copy-btn {
+ padding: 0.4rem 0.9rem;
+ border: none;
+ border-radius: 6px;
+ cursor: pointer;
+ font-size: 0.9rem;
+ font-weight: 600;
+ color: #ffffff;
+ background: linear-gradient(169deg, #1c73c4 0%, #1666b1 100%);
+ transition: transform 0.1s, box-shadow 0.1s, opacity 0.1s;
+}
+
+#dn-copy-btn:hover:not(:disabled) {
+ transform: translateY(-1px);
+ box-shadow: 0 4px 10px rgba(0, 115, 207, 0.3);
+}
+
+#dn-copy-btn:disabled {
+ opacity: 0.5;
+ cursor: not-allowed;
+}
+
+#dn-copy-btn.copied {
+ background: linear-gradient(169deg, #2ea44f 0%, #1f7a3a 100%);
+}
+
+#dn-output {
+ display: block;
+ width: 100%;
+ box-sizing: border-box;
+ min-height: 140px;
+ padding: 0.6rem 0.75rem;
+ border: 1px solid #c9d6e2;
+ border-radius: 6px;
+ font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+ font-size: 0.95rem;
+ line-height: 1.35;
+ background: #f9fbfd;
+ color: #1f2a44;
+ resize: vertical;
+}
+
+#dn-output:focus {
+ outline: none;
+ border-color: #1c73c4;
+ box-shadow: 0 0 0 3px rgba(0, 115, 207, 0.15);
+}
+
+#dn-status {
+ margin-top: 0.5rem;
+ min-height: 1.2em;
+ font-size: 0.85rem;
+ color: #506680;
+}
+
+#dn-status.error {
+ color: #b3261e;
+}
+
+#dn-status.success {
+ color: #1f7a3a;
+}
+
 /* SORT STATES */
 .sortable-ghost {
  opacity: 0.3 !important;
