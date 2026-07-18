@@ -63,11 +63,14 @@ The whole application runs **100% client-side in the browser** — no server, no
 
 ```
 .
-├── index.html      UI shell + CDN script imports
-├── script.js       All logic: parsing, QR extraction, PDF building
-├── style.css       Styling for the drop area, file list, buttons, loader
-├── logo.svg        Header logo
-└── icon.webp       Favicon
+├── index.html            UI shell + CDN script imports (two tabs)
+├── script.js             Manifest Merger logic: parsing, QR extraction, PDF building
+├── dn-extractor.js       Pure DN order-number extractor used after a merge
+├── ocr-dn-extractor.js   Pure helpers for the OCR tab (regex, page range, dedupe)
+├── ocr-ui.js             OCR tab UI + pdf.js/Tesseract.js orchestration
+├── style.css             Styling for the drop area, file list, buttons, tabs, OCR panel
+├── logo.svg              Header logo
+└── icon.webp             Favicon
 ```
 
 ### Tech stack
@@ -77,7 +80,12 @@ The whole application runs **100% client-side in the browser** — no server, no
 - [jsQR](https://github.com/cozmo/jsQR) – detect and crop QR codes
 - [JsBarcode](https://github.com/lindell/JsBarcode) – render CODE128 barcodes
 - [Sortable.js](https://github.com/SortableJS/Sortable) – drag-and-drop reordering of the file list
+- [Tesseract.js](https://github.com/naptha/tesseract.js) – client-side WASM OCR for the OCR DN Extraction tab
 - Vanilla HTML / CSS / JS — no build step
+
+### OCR DN Extraction tab
+
+An optional second tab, **OCR DN Extraction**, lets you pull DN order numbers out of scanned loading lists whose PDF text layer is empty. Everything still runs in the browser: pages are rendered with pdf.js (~300 DPI, grayscale + contrast stretch), OCR is done with Tesseract.js (WASM), and only values that match the strict pattern `\bDN[\s:.-]*(\d{8})\b` (case-insensitive) are accepted. Values that look like DN references but do not cleanly resolve to exactly eight digits (e.g. `DN 571I6344`) are surfaced separately as "Possible OCR Issues" for manual verification instead of being silently accepted. Modes: **Automatic** (try the text layer first, fall back to OCR only when the text layer finds no DNs) and **Force OCR**. Optional page range like `1-5` or `1,3,5-7`.
 
 ---
 
