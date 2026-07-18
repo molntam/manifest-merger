@@ -15,8 +15,12 @@
  <script defer src="https://unpkg.com/gsap@3.12.2/dist/gsap.min.js"></script>
  <script defer src="https://unpkg.com/gsap@3.12.2/dist/InertiaPlugin.min.js"></script>
  <script defer src="https://unpkg.com/@appletosolutions/reactbits/dist/reactbits.umd.js"></script>
+ <!-- Tesseract.js runs entirely client-side (WASM). No document ever leaves the browser. -->
+ <script defer src="https://unpkg.com/tesseract.js@5.0.5/dist/tesseract.min.js"></script>
  <script defer src="dn-extractor.js"></script>
+ <script defer src="ocr-dn-extractor.js"></script>
  <script defer src="script.js"></script>
+ <script defer src="ocr-ui.js"></script>
 </head>
 <body>
  <div id="hyperspeed-root" style="position:fixed; inset:0; z-index:-1;"></div>
@@ -38,37 +42,133 @@
 
    <h1>Manifest Merger</h1>
 
-   <div id="drop-area">
-     <p>Drag &amp; drop PDF files here</p>
-     <button onclick="fileInput.click()">Select PDFs</button>
-     <input type="file" id="fileInput" accept="application/pdf" multiple style="display:none">
+   <!-- Tab bar. The existing merger UI lives in #tab-merger; the new OCR
+        feature lives in #tab-ocr. Tabs are switched by script.js. -->
+   <div id="tab-bar" role="tablist">
+     <button type="button" class="tab-btn active" data-tab-target="tab-merger" role="tab" aria-selected="true">Manifest Merger</button>
+     <button type="button" class="tab-btn" data-tab-target="tab-ocr" role="tab" aria-selected="false">OCR DN Extraction</button>
    </div>
 
-   <div id="file-list"></div>
-
-   <input type="text" id="outputFilename" placeholder="Enter merged file name" value="Merged_Manifest">
-
-   <label style="display:block; text-align:center; margin-bottom:10px;">
-     <input type="checkbox" id="fastMode" checked>
-     Fast mode (skip Tracking and POD)
-   </label>
-
-   <div id="controls">
-     <button id="merge-btn">Generate Manifest PDF</button>
-     <button id="remove-all-btn">Remove All</button>
-   </div>
-
-   <section id="dn-section" aria-labelledby="dn-section-title">
-     <div id="dn-section-header">
-       <h2 id="dn-section-title">Extracted DN order numbers</h2>
-       <button type="button" id="dn-copy-btn" disabled>Copy all</button>
+   <!-- ─────────────── Existing Manifest Merger (unchanged) ─────────────── -->
+   <section id="tab-merger" class="tab-panel active" role="tabpanel">
+     <div id="drop-area">
+       <p>Drag &amp; drop PDF files here</p>
+       <button onclick="fileInput.click()">Select PDFs</button>
+       <input type="file" id="fileInput" accept="application/pdf" multiple style="display:none">
      </div>
-     <textarea id="dn-output"
-               readonly
-               rows="8"
-               aria-label="Extracted DN order numbers"
-               placeholder="DN order numbers extracted from the merged loading list will appear here after a successful merge."></textarea>
-     <div id="dn-status" role="status" aria-live="polite"></div>
+
+     <div id="file-list"></div>
+
+     <input type="text" id="outputFilename" placeholder="Enter merged file name" value="Merged_Manifest">
+
+     <label style="display:block; text-align:center; margin-bottom:10px;">
+       <input type="checkbox" id="fastMode" checked>
+       Fast mode (skip Tracking and POD)
+     </label>
+
+     <div id="controls">
+       <button id="merge-btn">Generate Manifest PDF</button>
+       <button id="remove-all-btn">Remove All</button>
+     </div>
+
+     <section id="dn-section" aria-labelledby="dn-section-title">
+       <div id="dn-section-header">
+         <h2 id="dn-section-title">Extracted DN order numbers</h2>
+         <button type="button" id="dn-copy-btn" disabled>Copy all</button>
+       </div>
+       <textarea id="dn-output"
+                 readonly
+                 rows="8"
+                 aria-label="Extracted DN order numbers"
+                 placeholder="DN order numbers extracted from the merged loading list will appear here after a successful merge."></textarea>
+       <div id="dn-status" role="status" aria-live="polite"></div>
+     </section>
+   </section>
+
+   <!-- ─────────────── New OCR DN Extraction tab ─────────────── -->
+   <section id="tab-ocr" class="tab-panel" role="tabpanel" aria-labelledby="ocr-title" hidden>
+     <div class="ocr-card">
+       <h2 id="ocr-title" class="ocr-title">OCR DN Extraction</h2>
+       <p class="ocr-description">
+         Use this tab when the loading list is a scanned PDF and normal text extraction does not find any DN numbers.
+         All processing happens locally in your browser — no document content is uploaded anywhere.
+       </p>
+
+       <div class="ocr-field">
+         <label class="ocr-label" for="ocr-select-btn">Scanned PDF:</label>
+         <div class="ocr-file-row">
+           <button type="button" id="ocr-select-btn" class="ocr-btn ocr-btn-secondary">Select scanned PDF</button>
+           <span id="ocr-file-name" class="ocr-file-name">No file selected</span>
+           <input type="file" id="ocr-file-input" accept="application/pdf" style="display:none">
+         </div>
+       </div>
+
+       <div class="ocr-field">
+         <span class="ocr-label">Extraction mode:</span>
+         <div class="ocr-radio-group" role="radiogroup" aria-label="Extraction mode">
+           <label class="ocr-radio">
+             <input type="radio" name="ocr-mode" id="ocr-mode-automatic" value="automatic" checked>
+             <span>Automatic (text layer first, OCR as fallback)</span>
+           </label>
+           <label class="ocr-radio">
+             <input type="radio" name="ocr-mode" id="ocr-mode-force" value="force">
+             <span>Force OCR (render and OCR every selected page)</span>
+           </label>
+         </div>
+       </div>
+
+       <div class="ocr-field">
+         <span class="ocr-label">Pages:</span>
+         <div class="ocr-radio-group" role="radiogroup" aria-label="Pages to process">
+           <label class="ocr-radio">
+             <input type="radio" name="ocr-pages" id="ocr-pages-all" value="all" checked>
+             <span>All pages</span>
+           </label>
+           <label class="ocr-radio">
+             <input type="radio" name="ocr-pages" id="ocr-pages-range" value="range">
+             <span>Page range:</span>
+             <input type="text" id="ocr-page-range-text" class="ocr-range-input" placeholder="e.g. 1-5" disabled>
+           </label>
+         </div>
+       </div>
+
+       <div class="ocr-actions">
+         <button type="button" id="ocr-extract-btn" class="ocr-btn ocr-btn-primary" disabled>Extract DN Numbers with OCR</button>
+         <button type="button" id="ocr-cancel-btn" class="ocr-btn ocr-btn-cancel">Cancel</button>
+       </div>
+
+       <div id="ocr-progress" class="ocr-progress">
+         <div class="ocr-progress-track">
+           <div id="ocr-progress-bar" class="ocr-progress-bar"></div>
+         </div>
+         <div id="ocr-progress-label" class="ocr-progress-label"></div>
+       </div>
+
+       <div id="ocr-status" class="ocr-status" role="status" aria-live="polite"></div>
+
+       <div class="ocr-results">
+         <div class="ocr-results-header">
+           <h3 class="ocr-subtitle">Confirmed DN Numbers</h3>
+           <button type="button" id="ocr-copy-btn" class="ocr-btn ocr-btn-primary ocr-copy-btn" disabled>Copy DN Numbers</button>
+         </div>
+         <textarea id="ocr-confirmed-output"
+                   readonly
+                   rows="10"
+                   aria-label="Confirmed DN order numbers extracted via OCR"
+                   placeholder="Extracted DN numbers will appear here, one per line."></textarea>
+       </div>
+
+       <div id="ocr-issues-wrap" class="ocr-issues">
+         <h3 class="ocr-subtitle">Possible OCR Issues</h3>
+         <p class="ocr-hint">Values that look like DN references but do not cleanly match the eight-digit rule. These require manual verification and are <strong>not</strong> included in the copyable list above.</p>
+         <ul id="ocr-issues-list" class="ocr-issues-list"></ul>
+       </div>
+
+       <div class="ocr-summary">
+         <h3 class="ocr-subtitle">Processing summary</h3>
+         <div id="ocr-summary-text" class="ocr-summary-text"></div>
+       </div>
+     </div>
    </section>
  </div>
 </body>

@@ -227,6 +227,35 @@ if (dnCopyBtn) {
     dnCopyBtn.addEventListener('click', copyDNNumbersToClipboard);
 }
 
+// ── Tab switching ────────────────────────────────────────────────────────
+// Purely additive: switches visibility between the existing Manifest Merger
+// tab and the new OCR DN Extraction tab. All existing merger logic and DOM
+// remain untouched inside #tab-merger.
+(function initTabs() {
+    const tabButtons = document.querySelectorAll('#tab-bar .tab-btn');
+    if (!tabButtons.length) return;
+    tabButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const targetId = btn.getAttribute('data-tab-target');
+            if (!targetId) return;
+            document.querySelectorAll('#tab-bar .tab-btn').forEach(b => {
+                const active = b === btn;
+                b.classList.toggle('active', active);
+                b.setAttribute('aria-selected', active ? 'true' : 'false');
+            });
+            document.querySelectorAll('.tab-panel').forEach(panel => {
+                const active = panel.id === targetId;
+                panel.classList.toggle('active', active);
+                if (active) {
+                    panel.removeAttribute('hidden');
+                } else {
+                    panel.setAttribute('hidden', '');
+                }
+            });
+        });
+    });
+})();
+
 mergeBtn.addEventListener('click', async () => {
     if (!pdfFiles.length) {
         return alert('Please select PDF files first.');
