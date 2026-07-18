@@ -48,10 +48,14 @@
   <div id="summary">Running…</div>
   <ol id="results"></ol>
 
+  <h1>OCR DN Extractor tests</h1>
+  <div id="ocr-summary">Running…</div>
+  <ol id="ocr-results"></ol>
+
   <script>
-    window.__renderDNExtractorTestResults = function (summary) {
-      const summaryEl = document.getElementById('summary');
-      const list = document.getElementById('results');
+    function renderInto(summaryElId, resultsElId, summary) {
+      const summaryEl = document.getElementById(summaryElId);
+      const list = document.getElementById(resultsElId);
       summaryEl.textContent =
         summary.passed + '/' + summary.total + ' passed, ' + summary.failed + ' failed.';
       summaryEl.className = summary.failed === 0 ? 'ok' : 'fail';
@@ -68,9 +72,18 @@
         }
         list.appendChild(li);
       }
+    }
+
+    window.__renderDNExtractorTestResults = function (summary) {
+      renderInto('summary', 'results', summary);
+    };
+    window.__renderOCRDNExtractorTestResults = function (summary) {
+      renderInto('ocr-summary', 'ocr-results', summary);
     };
   </script>
   <script src="dn-extractor.js"></script>
   <script src="tests/dn-extractor.test.js"></script>
+  <script src="ocr-dn-extractor.js"></script>
+  <script src="tests/ocr-dn-extractor.test.js"></script>
 </body>
 </html>
