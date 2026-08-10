@@ -4,9 +4,9 @@
  <meta charset="UTF-8">
  <meta name="viewport" content="width=device-width,initial-scale=1.0">
  <title>Manifest Merger</title>
- <link rel="icon" type="image/png"
-       href="icon.webp">
+ <link rel="icon" type="image/png" href="icon.webp">
  <link rel="stylesheet" href="style.css">
+ <link rel="stylesheet" href="ocr-safety.css">
  <script defer src="https://cdn.jsdelivr.net/npm/jsqr/dist/jsQR.js"></script>
  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
  <script defer src="https://unpkg.com/pdf-lib/dist/pdf-lib.min.js"></script>
@@ -15,7 +15,6 @@
  <script defer src="https://unpkg.com/gsap@3.12.2/dist/gsap.min.js"></script>
  <script defer src="https://unpkg.com/gsap@3.12.2/dist/InertiaPlugin.min.js"></script>
  <script defer src="https://unpkg.com/@appletosolutions/reactbits/dist/reactbits.umd.js"></script>
- <!-- Tesseract.js runs entirely client-side (WASM). No document ever leaves the browser. -->
  <script defer src="https://unpkg.com/tesseract.js@5.0.5/dist/tesseract.min.js"></script>
  <script defer src="dn-extractor.js"></script>
  <script defer src="ocr-dn-extractor.js"></script>
@@ -27,29 +26,23 @@
 
  <div id="loader-overlay">
    <div class="spinner"></div>
-   <div style="margin-top:1rem; font-size:1.2rem; color:#333;">
-     Generating PDF…
-   </div>
+   <div style="margin-top:1rem; font-size:1.2rem; color:#333;">Generating PDF…</div>
  </div>
 
  <div id="app-content">
    <div id="logo-placeholder">
      <a href="https://asml.sharepoint.com/sites/GMF-MS-LO-DHL-Shipping-5L-Group" target="_blank">
-       <img src="logo.svg" alt="Logo"
-            style="max-width:100%; max-height:100%; object-fit:contain;">
+       <img src="logo.svg" alt="Logo" style="max-width:100%; max-height:100%; object-fit:contain;">
      </a>
    </div>
 
    <h1>Manifest Merger</h1>
 
-   <!-- Tab bar. The existing merger UI lives in #tab-merger; the new OCR
-        feature lives in #tab-ocr. Tabs are switched by script.js. -->
    <div id="tab-bar" role="tablist">
      <button type="button" class="tab-btn active" data-tab-target="tab-merger" role="tab" aria-selected="true">Manifest Merger</button>
      <button type="button" class="tab-btn" data-tab-target="tab-ocr" role="tab" aria-selected="false">OCR DN Extraction</button>
    </div>
 
-   <!-- ─────────────── Existing Manifest Merger (unchanged) ─────────────── -->
    <section id="tab-merger" class="tab-panel active" role="tabpanel">
      <div id="drop-area">
        <p>Drag &amp; drop PDF files here</p>
@@ -76,31 +69,28 @@
          <h2 id="dn-section-title">Extracted DN order numbers</h2>
          <button type="button" id="dn-copy-btn" disabled>Copy all</button>
        </div>
-       <textarea id="dn-output"
-                 readonly
-                 rows="8"
-                 aria-label="Extracted DN order numbers"
-                 placeholder="DN order numbers extracted from the merged loading list will appear here after a successful merge."></textarea>
+       <textarea id="dn-output" readonly rows="8" aria-label="Extracted DN order numbers" placeholder="DN order numbers extracted from the merged loading list will appear here after a successful merge."></textarea>
        <div id="dn-status" role="status" aria-live="polite"></div>
      </section>
    </section>
 
-   <!-- ─────────────── New OCR DN Extraction tab ─────────────── -->
    <section id="tab-ocr" class="tab-panel" role="tabpanel" aria-labelledby="ocr-title" hidden>
      <div class="ocr-card">
        <h2 id="ocr-title" class="ocr-title">OCR DN Extraction</h2>
        <p class="ocr-description">
-         Use this tab when the loading list is a scanned PDF and normal text extraction does not find any DN numbers.
-         All processing happens locally in your browser — no document content is uploaded anywhere.
+         High-safety extraction for scanned loading lists. The tool cross-checks multiple OCR passes and blocks copying while anything still needs review. All processing stays in your browser.
        </p>
 
        <div class="ocr-field">
-         <label class="ocr-label" for="ocr-select-btn">Scanned PDF:</label>
-         <div class="ocr-file-row">
-           <button type="button" id="ocr-select-btn" class="ocr-btn ocr-btn-secondary">Select scanned PDF</button>
-           <span id="ocr-file-name" class="ocr-file-name">No file selected</span>
-           <input type="file" id="ocr-file-input" accept="application/pdf" style="display:none">
+         <span class="ocr-label">Scanned PDF files:</span>
+         <div id="ocr-drop-area" class="ocr-drop-area" tabindex="0" role="button" aria-label="Drop PDF files here or select PDF files">
+           <strong>Drag &amp; drop one or more PDF files here</strong>
+           <span>or</span>
+           <button type="button" id="ocr-select-btn" class="ocr-btn ocr-btn-secondary">Select PDFs</button>
+           <span id="ocr-file-name" class="ocr-file-name">No files selected</span>
+           <input type="file" id="ocr-file-input" accept="application/pdf" multiple style="display:none">
          </div>
+         <div id="ocr-file-list" class="ocr-file-list" aria-live="polite"></div>
        </div>
 
        <div class="ocr-field">
@@ -108,11 +98,11 @@
          <div class="ocr-radio-group" role="radiogroup" aria-label="Extraction mode">
            <label class="ocr-radio">
              <input type="radio" name="ocr-mode" id="ocr-mode-automatic" value="automatic" checked>
-             <span>Automatic (text layer first, OCR as fallback)</span>
+             <span>Automatic safety mode (PDF text + multiple OCR passes)</span>
            </label>
            <label class="ocr-radio">
              <input type="radio" name="ocr-mode" id="ocr-mode-force" value="force">
-             <span>Force OCR (render and OCR every selected page)</span>
+             <span>Force OCR only (ignore PDF text layer)</span>
            </label>
          </div>
        </div>
@@ -133,14 +123,12 @@
        </div>
 
        <div class="ocr-actions">
-         <button type="button" id="ocr-extract-btn" class="ocr-btn ocr-btn-primary" disabled>Extract DN Numbers with OCR</button>
+         <button type="button" id="ocr-extract-btn" class="ocr-btn ocr-btn-primary" disabled>Extract &amp; Verify DN Numbers</button>
          <button type="button" id="ocr-cancel-btn" class="ocr-btn ocr-btn-cancel">Cancel</button>
        </div>
 
        <div id="ocr-progress" class="ocr-progress">
-         <div class="ocr-progress-track">
-           <div id="ocr-progress-bar" class="ocr-progress-bar"></div>
-         </div>
+         <div class="ocr-progress-track"><div id="ocr-progress-bar" class="ocr-progress-bar"></div></div>
          <div id="ocr-progress-label" class="ocr-progress-label"></div>
        </div>
 
@@ -148,19 +136,15 @@
 
        <div class="ocr-results">
          <div class="ocr-results-header">
-           <h3 class="ocr-subtitle">Confirmed DN Numbers</h3>
+           <h3 class="ocr-subtitle">Verified DN Numbers</h3>
            <button type="button" id="ocr-copy-btn" class="ocr-btn ocr-btn-primary ocr-copy-btn" disabled>Copy DN Numbers</button>
          </div>
-         <textarea id="ocr-confirmed-output"
-                   readonly
-                   rows="10"
-                   aria-label="Confirmed DN order numbers extracted via OCR"
-                   placeholder="Extracted DN numbers will appear here, one per line."></textarea>
+         <textarea id="ocr-confirmed-output" readonly rows="10" aria-label="Verified DN order numbers extracted via OCR" placeholder="Verified DN numbers will appear here, one per line."></textarea>
        </div>
 
        <div id="ocr-issues-wrap" class="ocr-issues">
-         <h3 class="ocr-subtitle">Possible OCR Issues</h3>
-         <p class="ocr-hint">Values that look like DN references but do not cleanly match the eight-digit rule. These require manual verification and are <strong>not</strong> included in the copyable list above.</p>
+         <h3 class="ocr-subtitle">Manual Verification Required</h3>
+         <p class="ocr-hint">Copying is blocked until every unresolved item is confirmed or deliberately dismissed.</p>
          <ul id="ocr-issues-list" class="ocr-issues-list"></ul>
        </div>
 
