@@ -265,11 +265,11 @@
             const repeatedStructure = maxOccurrencesInSource >= 2;
             const firstPosition = Math.min(...items.map(item => Number.isFinite(item.position) ? item.position : Number.MAX_SAFE_INTEGER));
 
-            const isVerified =
-                (strictLabelledSources >= 2) ||
-                (hasLabelled && independentSources >= 2 && strictSources >= 1) ||
-                (repeatedStructure && independentSources >= 2 && strictSources >= 2) ||
-                (!hasLabelled && independentSources >= 3 && strictItems.length >= 4 && repeatedStructure);
+            const isVerified = hasLabelled && (
+                strictLabelledSources >= 2 ||
+                (independentSources >= 2 && strictSources >= 1) ||
+                (repeatedStructure && independentSources >= 2 && strictSources >= 2)
+            );
 
             const group = {
                 value,
