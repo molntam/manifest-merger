@@ -1,0 +1,102 @@
+.ocr-drop-area {
+ display: flex;
+ flex-direction: column;
+ align-items: center;
+ justify-content: center;
+ gap: 0.5rem;
+ min-height: 145px;
+ padding: 1rem;
+ border: 2px dashed #1c73c4;
+ border-radius: 10px;
+ background: #f8fbff;
+ cursor: pointer;
+ transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+ text-align: center;
+}
+
+.ocr-drop-area.dragover {
+ border-color: #00a3e0;
+ background: #eaf7ff;
+ box-shadow: 0 0 0 3px rgba(0, 163, 224, 0.12);
+}
+
+.ocr-drop-area.disabled {
+ opacity: 0.65;
+ cursor: not-allowed;
+}
+
+.ocr-file-list {
+ margin-top: 0.6rem;
+ display: flex;
+ flex-direction: column;
+ gap: 0.35rem;
+}
+
+.ocr-selected-file {
+ display: flex;
+ align-items: center;
+ justify-content: space-between;
+ gap: 0.75rem;
+ padding: 0.5rem 0.65rem;
+ border: 1px solid #d9e3ed;
+ border-radius: 7px;
+ background: #ffffff;
+}
+
+.ocr-selected-file-name {
+ min-width: 0;
+ overflow: hidden;
+ text-overflow: ellipsis;
+ white-space: nowrap;
+ font-size: 0.9rem;
+ color: #1f2a44;
+}
+
+.ocr-remove-file {
+ border: none;
+ border-radius: 5px;
+ padding: 0.3rem 0.55rem;
+ background: #e9eef4;
+ color: #3a4d63;
+ cursor: pointer;
+ font-weight: 600;
+}
+
+.ocr-remove-file:disabled {
+ opacity: 0.5;
+ cursor: not-allowed;
+}
+
+.ocr-review-item {
+ align-items: stretch !important;
+ flex-direction: column;
+}
+
+.ocr-review-controls {
+ display: flex;
+ flex-wrap: wrap;
+ align-items: center;
+ gap: 0.45rem;
+ width: 100%;
+ margin-top: 0.25rem;
+}
+
+.ocr-review-input {
+ width: 125px;
+ padding: 0.4rem 0.5rem;
+ border: 1px solid #c9d6e2;
+ border-radius: 6px;
+ font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+ font-size: 0.9rem;
+}
+
+.ocr-review-input:focus {
+ outline: none;
+ border-color: #1c73c4;
+ box-shadow: 0 0 0 3px rgba(0, 115, 207, 0.15);
+}
+
+.ocr-review-btn {
+ padding: 0.4rem 0.65rem;
+ font-size: 0.82rem;
+}
