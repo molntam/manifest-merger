@@ -5,7 +5,7 @@
         root.OCRDNExtractor = factory();
     }
 }(typeof self !== 'undefined' ? self : this, function () {
-    const DN_STRICT_PATTERN = /\bDN[\s:.\-]*([0-9]{8})\b/gi;
+    const DN_STRICT_PATTERN = /\bDN(?:[^\S\r\n]|[:.\-])*((?:[0-9][^\S\r\n]*){7}[0-9])(?![^\S\r\n]*[0-9])/gi;
     const DN_LOOSE_PATTERN = /\bDN[\s:.\-]*([0-9IlOoSBZGQD]{4,12})\b/gi;
     const STANDALONE_EIGHT_DIGIT_PATTERN = /\b([0-9]{8})\b/g;
     const OCR_CONFUSABLES = Object.freeze({
@@ -15,6 +15,10 @@
     function safeToString(value) {
         if (value === null || value === undefined) return '';
         try { return String(value); } catch (_) { return ''; }
+    }
+
+    function compactHorizontalWhitespace(value) {
+        return safeToString(value).replace(/[^\S\r\n]/g, '');
     }
 
     function parsePageRange(input, totalPages) {
@@ -99,7 +103,8 @@
         DN_STRICT_PATTERN.lastIndex = 0;
         let match;
         while ((match = DN_STRICT_PATTERN.exec(source)) !== null) {
-            result.confirmed.push(match[1]);
+            const number = compactHorizontalWhitespace(match[1]);
+            if (/^[0-9]{8}$/.test(number)) result.confirmed.push(number);
             confirmedSpans.push([match.index, match.index + match[0].length]);
         }
 
