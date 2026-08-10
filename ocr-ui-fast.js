@@ -263,7 +263,10 @@
             try {
                 const page = await pdf.getPage(pageNum);
                 const text = await page.getTextContent();
-                out.push({ page: pageNum, text: text.items.map(item => item.str || '').join(' ') });
+                const combined = text.items
+                    .map(item => `${item.str || ''}${item.hasEOL ? '\n' : ' '}`)
+                    .join('');
+                out.push({ page: pageNum, text: combined });
             } catch (_) { out.push({ page: pageNum, text: '' }); }
         }
         return out;
@@ -280,6 +283,20 @@
         worker = await Tesseract.createWorker('eng', 1);
         await worker.setParameters({ tessedit_pageseg_mode: '6', preserve_interword_spaces: '1' });
         return worker;
+    }
+
+    function looksLikeLoadingList(text) {
+        const source = String(text || '');
+        if (!source.trim()) return false;
+        const signals = [
+            /loading\s*list/i,
+            /amount\s*of\s*orders/i,
+            /order\s*number/i,
+            /reference\s*no/i,
+            /logistics\s*service\s*provider/i,
+            /transport\s*start/i
+        ];
+        return signals.reduce((count, pattern) => count + (pattern.test(source) ? 1 : 0), 0) >= 2;
     }
 
     function renderIssues(issues) {
@@ -354,23 +371,44 @@
                     continue;
                 }
 
-                let useTextLayer = false;
-                if (!(modeForceInput && modeForceInput.checked)) {
+                const forceOCR = !!(modeForceInput && modeForceInput.checked);
+                const textByPage = new Map();
+                if (!forceOCR) {
                     setProgress(donePages, totalPages, `Checking text layer: ${job.file.name}`);
-                    const pages = await textLayer(job.pdf, job.pages);
-                    const found = [];
-                    pages.forEach(item => found.push(...window.OCRDNExtractor.extractDNNumbersFromOCRText(item.text, item.page).confirmed));
-                    if (found.length) {
-                        confirmed.push(...found);
-                        donePages += job.pages.length;
-                        useTextLayer = true;
-                    }
+                    const textPages = await textLayer(job.pdf, job.pages);
+                    textPages.forEach(item => textByPage.set(item.page, item.text || ''));
                 }
-                if (useTextLayer) continue;
 
-                const ocr = await getWorker();
+                let ocr = null;
                 for (const pageNum of job.pages) {
                     if (cancelled) throw new Error('__cancelled__');
+
+                    if (!forceOCR) {
+                        const pageText = textByPage.get(pageNum) || '';
+                        const parsedText = window.OCRDNExtractor.extractDNNumbersFromOCRText(pageText, pageNum);
+                        const labelCount = (pageText.match(/\bDN\b/gi) || []).length;
+
+                        if (parsedText.confirmed.length) {
+                            confirmed.push(...parsedText.confirmed);
+                        }
+
+                        const textLooksComplete = parsedText.confirmed.length > 0 &&
+                            parsedText.possible.length === 0 &&
+                            labelCount <= parsedText.confirmed.length;
+
+                        if (textLooksComplete) {
+                            donePages++;
+                            continue;
+                        }
+
+                        const hasMeaningfulText = pageText.trim().length >= 80;
+                        if (hasMeaningfulText && !looksLikeLoadingList(pageText)) {
+                            donePages++;
+                            continue;
+                        }
+                    }
+
+                    if (!ocr) ocr = await getWorker();
                     setProgress(donePages, totalPages, `${job.file.name} — page ${pageNum}`);
                     try {
                         const canvas = await renderPage(job.pdf, pageNum);
