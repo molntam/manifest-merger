@@ -1,18 +1,3 @@
-// ocr-dn-extractor.js
-//
-// Pure, UI-independent helpers for the OCR DN Extraction tab.
-//
-// This module contains only regex matching, page-range parsing, and
-// order-preserving de-duplication. It intentionally does NOT touch the DOM,
-// pdf.js, or the OCR engine so it can be unit-tested in isolation from Node
-// (see tests/ocr-dn-extractor.test.js) and reused by the UI orchestration
-// script (`ocr-ui.js`).
-//
-// The strict DN pattern is deliberately more permissive on the separator than
-// the merger's `DNExtractor.DN_PATTERN` (whitespace, colon, dot or dash), so
-// that OCR outputs like "DN: 12345678", "DN.12345678" or "DN - 12345678" are
-// still accepted while a stray digit next to a DN label is not.
-
 (function (root, factory) {
     if (typeof module === 'object' && module.exports) {
         module.exports = factory();
@@ -20,72 +5,39 @@
         root.OCRDNExtractor = factory();
     }
 }(typeof self !== 'undefined' ? self : this, function () {
-
-    // Strict: DN followed by optional separator (space, colon, dot, dash) and
-    // exactly 8 digits, with word boundaries so we do not accept a longer
-    // number that happens to start with 8 matching digits.
     const DN_STRICT_PATTERN = /\bDN[\s:.\-]*([0-9]{8})\b/gi;
-
-    // Loose: DN followed by any run of characters that "look like" a DN value
-    // (digits and common OCR confusables such as I / l / O / o / S / B / Z /
-    // G / Q / D). We use this to detect *possible* OCR misreads for the
-    // "Possible OCR Issues" panel. Length is bounded to avoid catching
-    // arbitrary large numbers on the same line.
     const DN_LOOSE_PATTERN = /\bDN[\s:.\-]*([0-9IlOoSBZGQD]{4,12})\b/gi;
+    const STANDALONE_EIGHT_DIGIT_PATTERN = /\b([0-9]{8})\b/g;
+    const OCR_CONFUSABLES = Object.freeze({
+        I: '1', l: '1', O: '0', o: '0', S: '5', B: '8', Z: '2', G: '6', Q: '0', D: '0'
+    });
 
     function safeToString(value) {
         if (value === null || value === undefined) return '';
-        try {
-            return String(value);
-        } catch (e) {
-            return '';
-        }
+        try { return String(value); } catch (_) { return ''; }
     }
 
-    /**
-     * Parse a page-range string such as "1-5", "2,4,7-9", or "" (empty).
-     *
-     * - Empty / whitespace-only input means "all pages" and returns null so
-     *   the caller can decide what "all" means for a specific document.
-     * - Ranges are inclusive.
-     * - Duplicates are removed and the result is sorted ascending.
-     * - Pages outside [1, totalPages] (when totalPages is given) trigger an
-     *   error, matching the "Invalid page range" acceptance criteria.
-     *
-     * @param {string} input
-     * @param {number} [totalPages] optional upper bound for validation
-     * @returns {number[]|null} sorted unique page numbers, or null for "all"
-     * @throws {Error} on invalid syntax or out-of-bounds pages
-     */
     function parsePageRange(input, totalPages) {
         const text = safeToString(input).trim();
         if (!text) return null;
 
         const pages = new Set();
-        const parts = text.split(',');
-        for (const rawPart of parts) {
+        for (const rawPart of text.split(',')) {
             const part = rawPart.trim();
             if (!part) continue;
-
             if (part.indexOf('-') !== -1) {
                 const [rawStart, rawEnd, ...extra] = part.split('-');
-                if (extra.length > 0) {
-                    throw new Error(`Invalid page range: "${part}"`);
-                }
+                if (extra.length > 0) throw new Error(`Invalid page range: "${part}"`);
                 const start = Number(rawStart.trim());
                 const end = Number(rawEnd.trim());
                 if (!Number.isInteger(start) || !Number.isInteger(end) || start < 1 || end < 1) {
                     throw new Error(`Invalid page range: "${part}"`);
                 }
-                if (start > end) {
-                    throw new Error(`Invalid page range (start > end): "${part}"`);
-                }
+                if (start > end) throw new Error(`Invalid page range (start > end): "${part}"`);
                 for (let n = start; n <= end; n++) pages.add(n);
             } else {
                 const n = Number(part);
-                if (!Number.isInteger(n) || n < 1) {
-                    throw new Error(`Invalid page number: "${part}"`);
-                }
+                if (!Number.isInteger(n) || n < 1) throw new Error(`Invalid page number: "${part}"`);
                 pages.add(n);
             }
         }
@@ -101,87 +53,271 @@
         return sorted;
     }
 
-    /**
-     * De-duplicate an array of primitives while preserving the order of the
-     * first occurrence.
-     *
-     * @template T
-     * @param {Iterable<T>} values
-     * @returns {T[]}
-     */
     function deduplicatePreservingOrder(values) {
         const out = [];
         const seen = new Set();
         if (values === null || values === undefined) return out;
         if (typeof values[Symbol.iterator] !== 'function') return out;
-        for (const v of values) {
-            if (seen.has(v)) continue;
-            seen.add(v);
-            out.push(v);
+        for (const value of values) {
+            if (seen.has(value)) continue;
+            seen.add(value);
+            out.push(value);
         }
         return out;
     }
 
-    /**
-     * Extract confirmed DN numbers and possible-OCR-issue snippets from a
-     * single OCR text blob (typically the text of one page).
-     *
-     * Confirmed = strict DN + exactly 8 digits.
-     * Possible = looks like "DN <value>" but the value does not cleanly match
-     * the strict rule (wrong digit count, letter/digit confusables, etc.),
-     * AND it is not a substring of an already-confirmed match on that page.
-     *
-     * @param {string} text
-     * @param {number} [pageNumber] optional, used to tag possible issues
-     * @returns {{ confirmed: string[], possible: Array<{page:number|null,text:string}> }}
-     */
+    function normalizeDNToken(token) {
+        const raw = safeToString(token).trim();
+        const compact = raw.replace(/[\s.\-]/g, '');
+        if (compact.length !== 8) {
+            return { raw, compact, value: null, valid: false, corrected: false };
+        }
+
+        let value = '';
+        let corrected = false;
+        for (const ch of compact) {
+            if (/[0-9]/.test(ch)) {
+                value += ch;
+                continue;
+            }
+            if (Object.prototype.hasOwnProperty.call(OCR_CONFUSABLES, ch)) {
+                value += OCR_CONFUSABLES[ch];
+                corrected = true;
+                continue;
+            }
+            return { raw, compact, value: null, valid: false, corrected: false };
+        }
+        return { raw, compact, value, valid: /^[0-9]{8}$/.test(value), corrected };
+    }
+
     function extractDNNumbersFromOCRText(text, pageNumber) {
         const result = { confirmed: [], possible: [] };
         const source = safeToString(text);
         if (!source) return result;
 
-        // Range spans of confirmed matches so we can skip them when scanning
-        // for possible issues (avoid flagging a valid match as suspicious).
         const confirmedSpans = [];
         DN_STRICT_PATTERN.lastIndex = 0;
-        let m;
-        while ((m = DN_STRICT_PATTERN.exec(source)) !== null) {
-            result.confirmed.push(m[1]);
-            confirmedSpans.push([m.index, m.index + m[0].length]);
+        let match;
+        while ((match = DN_STRICT_PATTERN.exec(source)) !== null) {
+            result.confirmed.push(match[1]);
+            confirmedSpans.push([match.index, match.index + match[0].length]);
         }
 
         const isInsideConfirmed = (start, end) =>
             confirmedSpans.some(([cs, ce]) => start >= cs && end <= ce);
 
         DN_LOOSE_PATTERN.lastIndex = 0;
-        while ((m = DN_LOOSE_PATTERN.exec(source)) !== null) {
-            const start = m.index;
-            const end = start + m[0].length;
+        while ((match = DN_LOOSE_PATTERN.exec(source)) !== null) {
+            const start = match.index;
+            const end = start + match[0].length;
             if (isInsideConfirmed(start, end)) continue;
-
-            const value = m[1];
-            const strictlyValid = /^[0-9]{8}$/.test(value);
-            if (strictlyValid) {
-                // Already handled by the strict pass, or a false positive on
-                // the loose regex (should not happen given the character
-                // class, but keep the guard for safety).
-                continue;
-            }
-
+            if (/^[0-9]{8}$/.test(match[1])) continue;
             result.possible.push({
-                page: (typeof pageNumber === 'number') ? pageNumber : null,
-                text: m[0].trim()
+                page: typeof pageNumber === 'number' ? pageNumber : null,
+                text: match[0].trim()
+            });
+        }
+        return result;
+    }
+
+    function extractDNCandidatesFromOCRText(text, pageNumber, sourceName) {
+        const source = safeToString(text);
+        const evidence = [];
+        const possible = [];
+        const labelledRanges = [];
+        const sourceTag = safeToString(sourceName) || 'unknown';
+        let labelSignals = 0;
+        let globalOffset = 0;
+
+        const lines = source.split(/\r?\n/);
+        for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+            const line = lines[lineIndex];
+            const labelRegex = /\bDN\b/gi;
+            let labelMatch;
+            while ((labelMatch = labelRegex.exec(line)) !== null) {
+                labelSignals++;
+                const tail = line.slice(labelMatch.index + labelMatch[0].length, labelMatch.index + labelMatch[0].length + 28);
+                const tokenMatch = tail.match(/^[\s:.\-]*([0-9IlOoSBZGQD](?:[\s.\-]?[0-9IlOoSBZGQD]){3,11})/);
+                if (!tokenMatch) {
+                    possible.push({
+                        page: pageNumber == null ? null : pageNumber,
+                        source: sourceTag,
+                        text: line.trim() || 'DN',
+                        candidate: null,
+                        reason: 'DN label found but the value could not be read'
+                    });
+                    continue;
+                }
+
+                const rawToken = tokenMatch[1];
+                const normalized = normalizeDNToken(rawToken);
+                const localStart = labelMatch.index;
+                const localEnd = labelMatch.index + labelMatch[0].length + tokenMatch[0].length;
+                labelledRanges.push([globalOffset + localStart, globalOffset + localEnd]);
+
+                if (normalized.valid) {
+                    evidence.push({
+                        value: normalized.value,
+                        page: pageNumber == null ? null : pageNumber,
+                        source: sourceTag,
+                        labelled: true,
+                        corrected: normalized.corrected,
+                        raw: `DN ${rawToken}`.trim(),
+                        line: lineIndex + 1,
+                        position: globalOffset + localStart
+                    });
+                    if (normalized.corrected) {
+                        possible.push({
+                            page: pageNumber == null ? null : pageNumber,
+                            source: sourceTag,
+                            text: `DN ${rawToken}`.trim(),
+                            candidate: normalized.value,
+                            reason: 'DN contains OCR-confusable characters; consensus verification required'
+                        });
+                    }
+                } else {
+                    possible.push({
+                        page: pageNumber == null ? null : pageNumber,
+                        source: sourceTag,
+                        text: `DN ${rawToken}`.trim(),
+                        candidate: null,
+                        reason: 'DN value is not exactly eight readable digits'
+                    });
+                }
+            }
+            globalOffset += line.length + 1;
+        }
+
+        const isInsideLabelled = (start, end) =>
+            labelledRanges.some(([ls, le]) => start >= ls && end <= le);
+
+        STANDALONE_EIGHT_DIGIT_PATTERN.lastIndex = 0;
+        let match;
+        while ((match = STANDALONE_EIGHT_DIGIT_PATTERN.exec(source)) !== null) {
+            const start = match.index;
+            const end = start + match[0].length;
+            if (isInsideLabelled(start, end)) continue;
+            evidence.push({
+                value: match[1],
+                page: pageNumber == null ? null : pageNumber,
+                source: sourceTag,
+                labelled: false,
+                corrected: false,
+                raw: match[0],
+                line: null,
+                position: start
             });
         }
 
-        return result;
+        const confusablePattern = /\b([0-9IlOoSBZGQD]{8})\b/g;
+        while ((match = confusablePattern.exec(source)) !== null) {
+            const token = match[1];
+            if (/^[0-9]{8}$/.test(token)) continue;
+            const digitCount = (token.match(/[0-9]/g) || []).length;
+            if (digitCount < 6) continue;
+            const start = match.index;
+            const end = start + match[0].length;
+            if (isInsideLabelled(start, end)) continue;
+            const normalized = normalizeDNToken(token);
+            if (!normalized.valid) continue;
+            evidence.push({
+                value: normalized.value,
+                page: pageNumber == null ? null : pageNumber,
+                source: sourceTag,
+                labelled: false,
+                corrected: true,
+                raw: token,
+                line: null,
+                position: start
+            });
+        }
+
+        return { evidence, possible, labelSignals };
+    }
+
+    function evaluateDNEvidence(evidence) {
+        const groupsByValue = new Map();
+        for (const item of Array.isArray(evidence) ? evidence : []) {
+            if (!item || !/^[0-9]{8}$/.test(item.value || '')) continue;
+            if (!groupsByValue.has(item.value)) groupsByValue.set(item.value, []);
+            groupsByValue.get(item.value).push(item);
+        }
+
+        const verified = [];
+        const unresolved = [];
+        const groups = [];
+
+        for (const [value, items] of groupsByValue) {
+            const sourceSet = new Set(items.map(item => item.source || 'unknown'));
+            const labelledItems = items.filter(item => item.labelled);
+            const strictLabelledItems = labelledItems.filter(item => !item.corrected);
+            const strictItems = items.filter(item => !item.corrected);
+            const sourceCounts = new Map();
+            for (const item of items) {
+                const source = item.source || 'unknown';
+                sourceCounts.set(source, (sourceCounts.get(source) || 0) + 1);
+            }
+            const maxOccurrencesInSource = Math.max(0, ...sourceCounts.values());
+            const independentSources = sourceSet.size;
+            const strictSources = new Set(strictItems.map(item => item.source || 'unknown')).size;
+            const strictLabelledSources = new Set(strictLabelledItems.map(item => item.source || 'unknown')).size;
+            const hasLabelled = labelledItems.length > 0;
+            const repeatedStructure = maxOccurrencesInSource >= 2;
+            const firstPosition = Math.min(...items.map(item => Number.isFinite(item.position) ? item.position : Number.MAX_SAFE_INTEGER));
+
+            const isVerified =
+                (strictLabelledSources >= 2) ||
+                (hasLabelled && independentSources >= 2 && strictSources >= 1) ||
+                (repeatedStructure && independentSources >= 2 && strictSources >= 2) ||
+                (!hasLabelled && independentSources >= 3 && strictItems.length >= 4 && repeatedStructure);
+
+            const group = {
+                value,
+                items,
+                verified: isVerified,
+                independentSources,
+                strictSources,
+                hasLabelled,
+                repeatedStructure,
+                firstPosition
+            };
+            groups.push(group);
+
+            if (isVerified) {
+                verified.push(value);
+            } else if (hasLabelled || repeatedStructure || independentSources >= 2) {
+                unresolved.push({
+                    value,
+                    page: items[0].page == null ? null : items[0].page,
+                    candidate: value,
+                    reason: hasLabelled
+                        ? 'DN candidate did not receive enough independent OCR agreement'
+                        : 'Repeated eight-digit candidate needs manual verification',
+                    evidenceCount: items.length,
+                    sourceCount: independentSources,
+                    firstPosition
+                });
+            }
+        }
+
+        groups.sort((a, b) => a.firstPosition - b.firstPosition);
+        const verifiedSet = new Set(verified);
+        return {
+            verified: groups.filter(group => verifiedSet.has(group.value)).map(group => group.value),
+            unresolved: unresolved.sort((a, b) => a.firstPosition - b.firstPosition),
+            groups
+        };
     }
 
     return {
         DN_STRICT_PATTERN,
         DN_LOOSE_PATTERN,
+        STANDALONE_EIGHT_DIGIT_PATTERN,
         parsePageRange,
         deduplicatePreservingOrder,
-        extractDNNumbersFromOCRText
+        normalizeDNToken,
+        extractDNNumbersFromOCRText,
+        extractDNCandidatesFromOCRText,
+        evaluateDNEvidence
     };
 }));
