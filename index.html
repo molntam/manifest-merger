@@ -8,6 +8,7 @@
  <link rel="stylesheet" href="style.css">
  <link rel="stylesheet" href="ocr-safety.css">
  <script defer src="https://cdn.jsdelivr.net/npm/jsqr/dist/jsQR.js"></script>
+ <script defer src="https://cdnjs.cloudflare.com/ajax/libs/qrcode/1.5.1/qrcode.min.js"></script>
  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
  <script defer src="https://unpkg.com/pdf-lib/dist/pdf-lib.min.js"></script>
  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
@@ -16,6 +17,7 @@
  <script defer src="https://unpkg.com/gsap@3.12.2/dist/InertiaPlugin.min.js"></script>
  <script defer src="https://unpkg.com/@appletosolutions/reactbits/dist/reactbits.umd.js"></script>
  <script defer src="https://unpkg.com/tesseract.js@5.0.5/dist/tesseract.min.js"></script>
+ <script defer src="manifest-qr.js"></script>
  <script defer src="dn-extractor.js"></script>
  <script defer src="ocr-dn-extractor.js"></script>
  <script defer src="script.js"></script>
@@ -78,7 +80,7 @@
      <div class="ocr-card">
        <h2 id="ocr-title" class="ocr-title">OCR DN Extraction</h2>
        <p class="ocr-description">
-         Fast extraction for clean scanned loading lists. It uses the original single OCR pass and a lightweight duplicate-row safety check to recover a DN when the DN label is missed but the repeated eight-digit value is still read.
+         The reader checks for a Manifest Merger DN QR first. A valid QR returns the complete DN list immediately and skips OCR. Older documents without the QR continue through the original fast extraction method.
        </p>
 
        <div class="ocr-field">
@@ -98,11 +100,11 @@
          <div class="ocr-radio-group" role="radiogroup" aria-label="Extraction mode">
            <label class="ocr-radio">
              <input type="radio" name="ocr-mode" id="ocr-mode-automatic" value="automatic" checked>
-             <span>Automatic (text layer first, OCR as fallback)</span>
+             <span>Automatic (QR first, text layer, then OCR)</span>
            </label>
            <label class="ocr-radio">
              <input type="radio" name="ocr-mode" id="ocr-mode-force" value="force">
-             <span>Force OCR</span>
+             <span>Force OCR fallback if no QR is available</span>
            </label>
          </div>
        </div>
@@ -123,7 +125,7 @@
        </div>
 
        <div class="ocr-actions">
-         <button type="button" id="ocr-extract-btn" class="ocr-btn ocr-btn-primary" disabled>Extract DN Numbers with OCR</button>
+         <button type="button" id="ocr-extract-btn" class="ocr-btn ocr-btn-primary" disabled>Extract DN Numbers</button>
          <button type="button" id="ocr-cancel-btn" class="ocr-btn ocr-btn-cancel">Cancel</button>
        </div>
 
@@ -139,12 +141,12 @@
            <h3 class="ocr-subtitle">Confirmed DN Numbers</h3>
            <button type="button" id="ocr-copy-btn" class="ocr-btn ocr-btn-primary ocr-copy-btn" disabled>Copy DN Numbers</button>
          </div>
-         <textarea id="ocr-confirmed-output" readonly rows="10" aria-label="Confirmed DN order numbers extracted via OCR" placeholder="Extracted DN numbers will appear here, one per line."></textarea>
+         <textarea id="ocr-confirmed-output" readonly rows="10" aria-label="Confirmed DN order numbers" placeholder="Extracted DN numbers will appear here, one per line."></textarea>
        </div>
 
        <div id="ocr-issues-wrap" class="ocr-issues">
          <h3 class="ocr-subtitle">Possible OCR Issues</h3>
-         <p class="ocr-hint">Only malformed DN-labelled values are shown here. They do not block copying the confirmed list.</p>
+         <p class="ocr-hint">Only malformed DN-labelled values from the OCR fallback are shown here. They do not block copying the confirmed list.</p>
          <ul id="ocr-issues-list" class="ocr-issues-list"></ul>
        </div>
 
