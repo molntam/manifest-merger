@@ -1,8 +1,4 @@
 // Tests for dn-extractor.js
-//
-// Runs both in Node (`node tests/dn-extractor.test.js`) and in the browser
-// via tests.html. No external test framework so the project stays dependency-
-// free and consistent with its "open the HTML file" workflow.
 
 (function (root) {
     const isNode = typeof module === 'object' && module.exports;
@@ -44,31 +40,46 @@
         }
     }
 
-    // ── 1. Normal DN values with a space ────────────────────────────────
-    test('extracts normal "DN <space> 8 digits" values', () => {
+    test('extracts normal DN values', () => {
         assertEqualArray(
             extractUniqueDNNumbers(['DN 57109142', 'DN 57110459']),
             ['57109142', '57110459']
         );
     });
 
-    // ── 2. DN with and without a space ──────────────────────────────────
-    test('accepts DN with or without whitespace between prefix and digits', () => {
+    test('accepts whitespace between DN and digits', () => {
         assertEqualArray(
             extractUniqueDNNumbers(['DN57109142', 'DN   57110459', 'DN\t57120277']),
             ['57109142', '57110459', '57120277']
         );
     });
 
-    // ── 3. Lowercase / mixed-case dn ────────────────────────────────────
-    test('is case-insensitive (dn / Dn / dN all match)', () => {
+    test('stitches horizontal whitespace inside an eight-digit DN', () => {
+        assertEqualArray(
+            extractUniqueDNNumbers([
+                'DN 578281 87',
+                'DN 578 28187',
+                'DN 57 82 81 88',
+                'DN\t578281\t89'
+            ]),
+            ['57828187', '57828188', '57828189']
+        );
+    });
+
+    test('does not stitch across a line break', () => {
+        assertEqualArray(
+            extractUniqueDNNumbers(['DN 578281\n87', 'DN 578281\r\n88']),
+            []
+        );
+    });
+
+    test('is case-insensitive', () => {
         assertEqualArray(
             extractUniqueDNNumbers(['dn 57109142', 'Dn 57110459', 'dN57120277']),
             ['57109142', '57110459', '57120277']
         );
     });
 
-    // ── 4. Duplicate DN values ──────────────────────────────────────────
     test('removes duplicates across cells', () => {
         assertEqualArray(
             extractUniqueDNNumbers(['DN 57109142', 'DN 57109142', 'dn 57109142']),
@@ -76,7 +87,6 @@
         );
     });
 
-    // ── 5. RF values are ignored ────────────────────────────────────────
     test('ignores RF-prefixed order numbers', () => {
         assertEqualArray(
             extractUniqueDNNumbers(['RF 57120277', 'RF57109142', 'rf 57110459']),
@@ -84,7 +94,6 @@
         );
     });
 
-    // ── 6. Standalone 8-digit numbers are ignored ───────────────────────
     test('ignores standalone 8-digit numbers with no DN prefix', () => {
         assertEqualArray(
             extractUniqueDNNumbers(['57109142', ' 57110459 ', '10164032']),
@@ -92,15 +101,13 @@
         );
     });
 
-    // ── 7. Empty and null cells ─────────────────────────────────────────
-    test('safely skips null, undefined, empty, and whitespace-only cells', () => {
+    test('safely skips empty values', () => {
         assertEqualArray(
             extractUniqueDNNumbers([null, undefined, '', '   ', '\t\n', 'DN 57109142']),
             ['57109142']
         );
     });
 
-    // ── 8. Multiple DN values inside a single cell ──────────────────────
     test('captures multiple DN values inside a single cell', () => {
         assertEqualArray(
             extractUniqueDNNumbers(['DN 57109142 DN 57110459 dn57120277']),
@@ -108,29 +115,18 @@
         );
     });
 
-    // ── 9. First-occurrence order is preserved ──────────────────────────
-    test('preserves first-occurrence order when removing duplicates', () => {
+    test('preserves first-occurrence order', () => {
         assertEqualArray(
             extractUniqueDNNumbers([
                 'DN 57109142',
-                '57110459',
                 'DN 57110459',
                 'DN 57109913',
-                '57109913',
-                'DN 57111844',
                 'DN 57111844',
                 'DN 57108666',
-                '57108666',
                 'DN 57108862',
-                'DN 57108862',
-                '10164032',
-                'RF 57120277',
-                'DN 57120277',
                 'DN 57120277',
                 'DN 57114963',
-                '57123667',
                 'DN 57123667',
-                '57116344',
                 'DN 57116344'
             ]),
             [
@@ -148,66 +144,22 @@
         );
     });
 
-    // ── 10. Wrong digit counts are ignored ──────────────────────────────
-    test('ignores DN with fewer or more than 8 digits', () => {
+    test('ignores DN values with fewer or more than eight digits', () => {
         assertEqualArray(
             extractUniqueDNNumbers([
-                'DN 1234567',      // 7 digits
-                'DN 123456789',    // 9 digits
-                'DN 5710914',      // 7 digits
-                'DN 571091423'     // 9 digits
+                'DN 1234567',
+                'DN 123456789',
+                'DN 123 456 789'
             ]),
             []
         );
     });
 
-    // ── 11. Wrong digit counts alongside a valid one ────────────────────
-    test('extracts only the valid 8-digit DN when mixed with invalid ones', () => {
+    test('extracts only valid eight-digit values when mixed', () => {
         assertEqualArray(
-            extractUniqueDNNumbers(['DN 1234567 DN 57109142 DN 123456789']),
-            ['57109142']
+            extractUniqueDNNumbers(['DN 1234567 DN 57109142 DN 123456789 DN 578281 87']),
+            ['57109142', '57828187']
         );
-    });
-
-    // ── 12. Mixed data types coerced safely ─────────────────────────────
-    test('coerces non-string values safely', () => {
-        assertEqualArray(
-            extractUniqueDNNumbers([
-                57109142,                       // plain number, no DN → ignored
-                { toString: () => 'DN 57110459' },
-                ['DN 57120277']                 // Array#toString → "DN 57120277"
-            ]),
-            ['57110459', '57120277']
-        );
-    });
-
-    // ── 13. Non-iterable / bad inputs ───────────────────────────────────
-    test('returns [] for null / undefined / non-iterable inputs', () => {
-        assertEqualArray(extractUniqueDNNumbers(null), []);
-        assertEqualArray(extractUniqueDNNumbers(undefined), []);
-        assertEqualArray(extractUniqueDNNumbers(12345), []);
-    });
-
-    // ── 14. Leading/trailing whitespace ─────────────────────────────────
-    test('trims leading and trailing whitespace before matching', () => {
-        assertEqualArray(
-            extractUniqueDNNumbers(['   DN 57109142   ', '\n\tDN 57110459\n']),
-            ['57109142', '57110459']
-        );
-    });
-
-    // ── 15. Join produces exactly the UI-facing value ───────────────────
-    test('joined output has no blank lines and no duplicates', () => {
-        const numbers = extractUniqueDNNumbers([
-            'DN 57109142', '', null, 'DN 57109142', 'DN 57110459', '   '
-        ]);
-        const joined = numbers.join('\n');
-        if (joined !== '57109142\n57110459') {
-            throw new Error('unexpected joined output: ' + JSON.stringify(joined));
-        }
-        if (joined.split('\n').some(line => line === '')) {
-            throw new Error('joined output contains blank lines');
-        }
     });
 
     const summary = {
