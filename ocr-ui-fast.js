@@ -31,6 +31,7 @@
     let worker = null;
     let copyTimer = null;
     const SCALE = 300 / 72;
+    const QR_CORNER_RATIO = 0.18;
 
     function setStatus(text, tone) {
         if (!statusEl) return;
@@ -207,6 +208,54 @@
         return canvas;
     }
 
+    async function scanManifestQrOnPage(pdf, pageNum) {
+        if (typeof jsQR !== 'function' || !window.ManifestQR || typeof window.ManifestQR.parsePayload !== 'function') return null;
+
+        const page = await pdf.getPage(pageNum);
+        const viewport = page.getViewport({ scale: SCALE });
+        const canvas = document.createElement('canvas');
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        await page.render({ canvasContext: ctx, viewport }).promise;
+
+        const w = canvas.width;
+        const h = canvas.height;
+        const cw = Math.max(240, Math.floor(w * QR_CORNER_RATIO));
+        const ch = Math.max(240, Math.floor(h * QR_CORNER_RATIO));
+        const corners = [
+            [w - cw, h - ch],
+            [0, h - ch],
+            [w - cw, 0],
+            [0, 0]
+        ];
+
+        try {
+            for (const [x, y] of corners) {
+                const image = ctx.getImageData(Math.max(0, x), Math.max(0, y), Math.min(cw, w), Math.min(ch, h));
+                const code = jsQR(image.data, image.width, image.height);
+                if (!code || !code.data) continue;
+                const parsed = window.ManifestQR.parsePayload(code.data);
+                if (parsed) return { ...parsed, page: pageNum };
+            }
+            return null;
+        } finally {
+            canvas.width = 1;
+            canvas.height = 1;
+        }
+    }
+
+    async function findManifestQr(pdf, pages) {
+        for (const pageNum of pages) {
+            if (cancelled) return null;
+            const hit = await scanManifestQrOnPage(pdf, pageNum);
+            if (hit) return hit;
+        }
+        return null;
+    }
+
     async function textLayer(pdf, pages) {
         const out = [];
         for (const pageNum of pages) {
@@ -233,46 +282,6 @@
         return worker;
     }
 
-    function repeatedCandidates(text, confirmed) {
-        const counts = new Map();
-        const confirmedSet = new Set(confirmed);
-        const re = /\b([0-9]{8})\b/g;
-        let m;
-        while ((m = re.exec(text || ''))) counts.set(m[1], (counts.get(m[1]) || 0) + 1);
-        return Array.from(counts.entries())
-            .filter(([value, count]) => count >= 2 && !confirmedSet.has(value))
-            .map(([value]) => value);
-    }
-
-    function geometricCandidates(data, canvas, confirmed) {
-        const words = data && Array.isArray(data.words) ? data.words : [];
-        const confirmedSet = new Set(confirmed);
-        const groups = new Map();
-        for (const word of words) {
-            const value = String(word && word.text || '').trim();
-            if (!/^[0-9]{8}$/.test(value) || confirmedSet.has(value) || !word.bbox) continue;
-            if (!groups.has(value)) groups.set(value, []);
-            groups.get(value).push(word.bbox);
-        }
-        const recovered = [];
-        for (const [value, boxes] of groups) {
-            if (boxes.length < 2) continue;
-            let ok = false;
-            for (let i = 0; i < boxes.length && !ok; i++) {
-                for (let j = i + 1; j < boxes.length; j++) {
-                    const a = boxes[i], b = boxes[j];
-                    const ax = (a.x0 + a.x1) / 2, bx = (b.x0 + b.x1) / 2;
-                    const ay = (a.y0 + a.y1) / 2, by = (b.y0 + b.y1) / 2;
-                    if (ax > canvas.width * 0.42 && bx > canvas.width * 0.42 &&
-                        Math.abs(ax - bx) < canvas.width * 0.16 &&
-                        Math.abs(ay - by) < canvas.height * 0.14) ok = true;
-                }
-            }
-            if (ok) recovered.push(value);
-        }
-        return recovered;
-    }
-
     function renderIssues(issues) {
         if (!issuesList || !issuesWrap) return;
         issuesList.innerHTML = '';
@@ -293,7 +302,8 @@
             `${s.files} PDF file${s.files === 1 ? '' : 's'} processed`,
             `${s.pages} page${s.pages === 1 ? '' : 's'} processed`,
             `${s.dns} DN number${s.dns === 1 ? '' : 's'} found`,
-            `${s.recovered} DN number${s.recovered === 1 ? '' : 's'} recovered by the lightweight safety check`,
+            `${s.qrFiles} file${s.qrFiles === 1 ? '' : 's'} resolved from Manifest QR`,
+            `${s.ocrPages} page${s.ocrPages === 1 ? '' : 's'} required OCR`,
             `${s.issues} possible OCR issue${s.issues === 1 ? '' : 's'}`,
             `${s.failed} failed page${s.failed === 1 ? '' : 's'}`
         ].forEach(text => {
@@ -313,12 +323,13 @@
         setStatus('');
 
         const confirmed = [];
-        const recovered = [];
         const issues = [];
         const failed = [];
         const jobs = [];
         let totalPages = 0;
         let donePages = 0;
+        let qrFiles = 0;
+        let ocrPages = 0;
 
         try {
             for (const file of selectedFiles) {
@@ -332,6 +343,17 @@
 
             for (const job of jobs) {
                 if (cancelled) throw new Error('__cancelled__');
+
+                setProgress(donePages, totalPages, `Checking Manifest QR: ${job.file.name}`);
+                const qr = await findManifestQr(job.pdf, job.pages);
+                if (cancelled) throw new Error('__cancelled__');
+                if (qr && qr.dns.length) {
+                    confirmed.push(...qr.dns);
+                    qrFiles++;
+                    donePages += job.pages.length;
+                    continue;
+                }
+
                 let useTextLayer = false;
                 if (!(modeForceInput && modeForceInput.checked)) {
                     setProgress(donePages, totalPages, `Checking text layer: ${job.file.name}`);
@@ -355,19 +377,15 @@
                         const result = await ocr.recognize(canvas);
                         const data = result && result.data ? result.data : {};
                         const parsed = window.OCRDNExtractor.extractDNNumbersFromOCRText(data.text || '', pageNum);
-                        const rescue = window.OCRDNExtractor.deduplicatePreservingOrder([
-                            ...repeatedCandidates(data.text || '', parsed.confirmed),
-                            ...geometricCandidates(data, canvas, parsed.confirmed)
-                        ]);
-                        confirmed.push(...parsed.confirmed, ...rescue);
-                        rescue.forEach(value => recovered.push(value));
+                        confirmed.push(...parsed.confirmed);
                         parsed.possible.forEach(item => issues.push({ ...item, file: job.file.name }));
                         canvas.width = 1;
                         canvas.height = 1;
-                    } catch (err) {
+                    } catch (_) {
                         failed.push({ file: job.file.name, page: pageNum });
                     }
                     donePages++;
+                    ocrPages++;
                 }
             }
 
@@ -379,11 +397,16 @@
                 files: selectedFiles.length,
                 pages: donePages,
                 dns: unique.length,
-                recovered: window.OCRDNExtractor.deduplicatePreservingOrder(recovered).length,
+                qrFiles,
+                ocrPages,
                 issues: issues.length,
                 failed: failed.length
             });
-            setStatus(unique.length ? (failed.length ? 'Done, with page errors shown in the summary.' : 'Done.') : 'No DN numbers found.', unique.length ? 'success' : 'error');
+            if (unique.length) {
+                setStatus(qrFiles ? 'Done. Manifest QR verified; OCR was skipped where available.' : (failed.length ? 'Done, with page errors shown in the summary.' : 'Done.'), 'success');
+            } else {
+                setStatus('No DN numbers found.', 'error');
+            }
         } catch (err) {
             setStatus(err && err.message === '__cancelled__' ? 'OCR cancelled.' : (err.userMessage ? err.message : `OCR failed: ${err.message || 'unknown error'}`), err && err.message === '__cancelled__' ? 'info' : 'error');
         } finally {
