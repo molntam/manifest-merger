@@ -19,7 +19,7 @@
  <script defer src="dn-extractor.js"></script>
  <script defer src="ocr-dn-extractor.js"></script>
  <script defer src="script.js"></script>
- <script defer src="ocr-ui.js"></script>
+ <script defer src="ocr-ui-fast.js"></script>
 </head>
 <body>
  <div id="hyperspeed-root" style="position:fixed; inset:0; z-index:-1;"></div>
@@ -78,7 +78,7 @@
      <div class="ocr-card">
        <h2 id="ocr-title" class="ocr-title">OCR DN Extraction</h2>
        <p class="ocr-description">
-         High-safety extraction for scanned loading lists. The tool cross-checks multiple OCR passes and blocks copying while anything still needs review. All processing stays in your browser.
+         Fast extraction for clean scanned loading lists. It uses the original single OCR pass and a lightweight duplicate-row safety check to recover a DN when the DN label is missed but the repeated eight-digit value is still read.
        </p>
 
        <div class="ocr-field">
@@ -98,11 +98,11 @@
          <div class="ocr-radio-group" role="radiogroup" aria-label="Extraction mode">
            <label class="ocr-radio">
              <input type="radio" name="ocr-mode" id="ocr-mode-automatic" value="automatic" checked>
-             <span>Automatic safety mode (PDF text + multiple OCR passes)</span>
+             <span>Automatic (text layer first, OCR as fallback)</span>
            </label>
            <label class="ocr-radio">
              <input type="radio" name="ocr-mode" id="ocr-mode-force" value="force">
-             <span>Force OCR only (ignore PDF text layer)</span>
+             <span>Force OCR</span>
            </label>
          </div>
        </div>
@@ -123,7 +123,7 @@
        </div>
 
        <div class="ocr-actions">
-         <button type="button" id="ocr-extract-btn" class="ocr-btn ocr-btn-primary" disabled>Extract &amp; Verify DN Numbers</button>
+         <button type="button" id="ocr-extract-btn" class="ocr-btn ocr-btn-primary" disabled>Extract DN Numbers with OCR</button>
          <button type="button" id="ocr-cancel-btn" class="ocr-btn ocr-btn-cancel">Cancel</button>
        </div>
 
@@ -136,15 +136,15 @@
 
        <div class="ocr-results">
          <div class="ocr-results-header">
-           <h3 class="ocr-subtitle">Verified DN Numbers</h3>
+           <h3 class="ocr-subtitle">Confirmed DN Numbers</h3>
            <button type="button" id="ocr-copy-btn" class="ocr-btn ocr-btn-primary ocr-copy-btn" disabled>Copy DN Numbers</button>
          </div>
-         <textarea id="ocr-confirmed-output" readonly rows="10" aria-label="Verified DN order numbers extracted via OCR" placeholder="Verified DN numbers will appear here, one per line."></textarea>
+         <textarea id="ocr-confirmed-output" readonly rows="10" aria-label="Confirmed DN order numbers extracted via OCR" placeholder="Extracted DN numbers will appear here, one per line."></textarea>
        </div>
 
        <div id="ocr-issues-wrap" class="ocr-issues">
-         <h3 class="ocr-subtitle">Manual Verification Required</h3>
-         <p class="ocr-hint">Copying is blocked until every unresolved item is confirmed or deliberately dismissed.</p>
+         <h3 class="ocr-subtitle">Possible OCR Issues</h3>
+         <p class="ocr-hint">Only malformed DN-labelled values are shown here. They do not block copying the confirmed list.</p>
          <ul id="ocr-issues-list" class="ocr-issues-list"></ul>
        </div>
 
