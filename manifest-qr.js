@@ -78,20 +78,25 @@
         try {
             if (typeof data === 'undefined' || !data || !Array.isArray(data.rows)) return [];
             const values = data.rows.map(row => row && row.length > 2 ? row[2] : '');
-            if (root.DNExtractor && typeof root.DNExtractor.extractUniqueDNNumbers === 'function') {
-                return root.DNExtractor.extractUniqueDNNumbers(values);
-            }
             const out = [];
             const seen = new Set();
-            const re = /\bDN\s*(\d{8})\b/gi;
+
+            const add = dn => {
+                if (!/^[0-9]{8}$/.test(dn) || seen.has(dn)) return;
+                seen.add(dn);
+                out.push(dn);
+            };
+
             for (const value of values) {
-                re.lastIndex = 0;
-                let match;
-                while ((match = re.exec(String(value || ''))) !== null) {
-                    if (seen.has(match[1])) continue;
-                    seen.add(match[1]);
-                    out.push(match[1]);
+                const text = String(value == null ? '' : value).trim();
+                if (!text) continue;
+
+                if (root.DNExtractor && typeof root.DNExtractor.extractUniqueDNNumbers === 'function') {
+                    root.DNExtractor.extractUniqueDNNumbers([text]).forEach(add);
                 }
+
+                const compact = text.replace(/\s+/g, '');
+                if (/^[0-9]{8}$/.test(compact)) add(compact);
             }
             return out;
         } catch (_) {
