@@ -85,7 +85,11 @@ The whole application runs **100% client-side in the browser** — no server, no
 
 ### OCR DN Extraction tab
 
-An optional second tab, **OCR DN Extraction**, lets you pull DN order numbers out of scanned loading lists whose PDF text layer is empty. Everything still runs in the browser: pages are rendered with pdf.js (~300 DPI, grayscale + contrast stretch), OCR is done with Tesseract.js (WASM), and only values that match the strict pattern `\bDN[\s:.-]*(\d{8})\b` (case-insensitive) are accepted. Values that look like DN references but do not cleanly resolve to exactly eight digits (e.g. `DN 571I6344`) are surfaced separately as "Possible OCR Issues" for manual verification instead of being silently accepted. Modes: **Automatic** (try the text layer first, fall back to OCR only when the text layer finds no DNs) and **Force OCR**. Optional page range like `1-5` or `1,3,5-7`.
+An optional second tab, **OCR DN Extraction**, lets you pull DN order numbers out of scanned loading lists. Each selected page is checked for a valid Manifest Merger QR first. Its DN list is added to the results and text/OCR extraction is skipped for that page only. A QR contains the list for its originating manifest; it does not establish coverage of other manifests bundled into the same PDF. Every selected page in every file is still checked, and duplicate DNs are removed in first-occurrence order.
+
+Pages without a valid QR use the fallback: **Automatic** reads the text layer and uses OCR for loading-list pages whose text is missing or incomplete; **Force OCR** bypasses the text layer on pages without a valid QR. Everything runs in the browser using pdf.js and Tesseract.js at approximately 300 DPI. Only DN-labelled values containing exactly eight digits are accepted, including digits split by horizontal whitespace. Malformed OCR values (e.g. `DN 571I6344`) appear under "Possible OCR Issues" for manual verification. Optional page ranges such as `1-5` or `1,3,5-7` apply to each selected file.
+
+Run the regression suite with `node --test tests/*.test.js`. The OCR reader tests include a synthetic 90-page fixture with an 18-DN QR repeated on pages 53-54, alongside range, multiple-file, OCR fallback, and cancellation checks.
 
 ---
 

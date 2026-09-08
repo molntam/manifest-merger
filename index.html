@@ -80,7 +80,7 @@
      <div class="ocr-card">
        <h2 id="ocr-title" class="ocr-title">OCR DN Extraction</h2>
        <p class="ocr-description">
-         The reader checks for a Manifest Merger DN QR first. A valid QR returns the complete DN list immediately and skips OCR. Older documents without the QR continue through the original fast extraction method.
+         Each selected page is checked for a Manifest Merger DN QR. Pages without a valid QR use text extraction or OCR. DN numbers from all selected pages and files are combined, with duplicates removed.
        </p>
 
        <div class="ocr-field">
@@ -104,7 +104,7 @@
            </label>
            <label class="ocr-radio">
              <input type="radio" name="ocr-mode" id="ocr-mode-force" value="force">
-             <span>Force OCR fallback if no QR is available</span>
+             <span>Force OCR on pages without a valid QR</span>
            </label>
          </div>
        </div>
