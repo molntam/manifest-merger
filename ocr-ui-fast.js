@@ -219,20 +219,20 @@
         const ctx = canvas.getContext('2d');
         ctx.fillStyle = '#fff';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
-        await page.render({ canvasContext: ctx, viewport }).promise;
-
-        const w = canvas.width;
-        const h = canvas.height;
-        const cw = Math.max(240, Math.floor(w * QR_CORNER_RATIO));
-        const ch = Math.max(240, Math.floor(h * QR_CORNER_RATIO));
-        const corners = [
-            [w - cw, h - ch],
-            [0, h - ch],
-            [w - cw, 0],
-            [0, 0]
-        ];
-
         try {
+            await page.render({ canvasContext: ctx, viewport }).promise;
+
+            const w = canvas.width;
+            const h = canvas.height;
+            const cw = Math.max(240, Math.floor(w * QR_CORNER_RATIO));
+            const ch = Math.max(240, Math.floor(h * QR_CORNER_RATIO));
+            const corners = [
+                [w - cw, h - ch],
+                [0, h - ch],
+                [w - cw, 0],
+                [0, 0]
+            ];
+
             for (const [x, y] of corners) {
                 const image = ctx.getImageData(Math.max(0, x), Math.max(0, y), Math.min(cw, w), Math.min(ch, h));
                 const code = jsQR(image.data, image.width, image.height);
@@ -247,29 +247,14 @@
         }
     }
 
-    async function findManifestQr(pdf, pages) {
-        for (const pageNum of pages) {
-            if (cancelled) return null;
-            const hit = await scanManifestQrOnPage(pdf, pageNum);
-            if (hit) return hit;
-        }
-        return null;
-    }
-
-    async function textLayer(pdf, pages) {
-        const out = [];
-        for (const pageNum of pages) {
-            if (cancelled) break;
-            try {
-                const page = await pdf.getPage(pageNum);
-                const text = await page.getTextContent();
-                const combined = text.items
-                    .map(item => `${item.str || ''}${item.hasEOL ? '\n' : ' '}`)
-                    .join('');
-                out.push({ page: pageNum, text: combined });
-            } catch (_) { out.push({ page: pageNum, text: '' }); }
-        }
-        return out;
+    async function textLayer(pdf, pageNum) {
+        try {
+            const page = await pdf.getPage(pageNum);
+            const text = await page.getTextContent();
+            return text.items
+                .map(item => `${item.str || ''}${item.hasEOL ? '\n' : ' '}`)
+                .join('');
+        } catch (_) { return ''; }
     }
 
     async function getWorker() {
@@ -319,7 +304,7 @@
             `${s.files} PDF file${s.files === 1 ? '' : 's'} processed`,
             `${s.pages} page${s.pages === 1 ? '' : 's'} processed`,
             `${s.dns} DN number${s.dns === 1 ? '' : 's'} found`,
-            `${s.qrFiles} file${s.qrFiles === 1 ? '' : 's'} resolved from Manifest QR`,
+            `${s.qrPages} page${s.qrPages === 1 ? '' : 's'} resolved from Manifest QR`,
             `${s.ocrPages} page${s.ocrPages === 1 ? '' : 's'} required OCR`,
             `${s.issues} possible OCR issue${s.issues === 1 ? '' : 's'}`,
             `${s.failed} failed page${s.failed === 1 ? '' : 's'}`
@@ -345,7 +330,7 @@
         const jobs = [];
         let totalPages = 0;
         let donePages = 0;
-        let qrFiles = 0;
+        let qrPages = 0;
         let ocrPages = 0;
 
         try {
@@ -361,30 +346,28 @@
             for (const job of jobs) {
                 if (cancelled) throw new Error('__cancelled__');
 
-                setProgress(donePages, totalPages, `Checking Manifest QR: ${job.file.name}`);
-                const qr = await findManifestQr(job.pdf, job.pages);
-                if (cancelled) throw new Error('__cancelled__');
-                if (qr && qr.dns.length) {
-                    confirmed.push(...qr.dns);
-                    qrFiles++;
-                    donePages += job.pages.length;
-                    continue;
-                }
-
                 const forceOCR = !!(modeForceInput && modeForceInput.checked);
-                const textByPage = new Map();
-                if (!forceOCR) {
-                    setProgress(donePages, totalPages, `Checking text layer: ${job.file.name}`);
-                    const textPages = await textLayer(job.pdf, job.pages);
-                    textPages.forEach(item => textByPage.set(item.page, item.text || ''));
-                }
-
                 let ocr = null;
                 for (const pageNum of job.pages) {
                     if (cancelled) throw new Error('__cancelled__');
 
+                    setProgress(donePages, totalPages, `Checking Manifest QR: ${job.file.name} — page ${pageNum}`);
+                    let qr = null;
+                    try {
+                        qr = await scanManifestQrOnPage(job.pdf, pageNum);
+                    } catch (_) { /* A failed QR scan still gets text/OCR fallback. */ }
+                    if (cancelled) throw new Error('__cancelled__');
+                    if (qr && qr.dns.length) {
+                        // A QR covers its source manifest, not every manifest in a combined PDF.
+                        confirmed.push(...qr.dns);
+                        qrPages++;
+                        donePages++;
+                        continue;
+                    }
+
                     if (!forceOCR) {
-                        const pageText = textByPage.get(pageNum) || '';
+                        const pageText = await textLayer(job.pdf, pageNum);
+                        if (cancelled) throw new Error('__cancelled__');
                         const parsedText = window.OCRDNExtractor.extractDNNumbersFromOCRText(pageText, pageNum);
                         const labelCount = (pageText.match(/\bDN\b/gi) || []).length;
 
@@ -435,13 +418,13 @@
                 files: selectedFiles.length,
                 pages: donePages,
                 dns: unique.length,
-                qrFiles,
+                qrPages,
                 ocrPages,
                 issues: issues.length,
                 failed: failed.length
             });
             if (unique.length) {
-                setStatus(qrFiles ? 'Done. Manifest QR verified; OCR was skipped where available.' : (failed.length ? 'Done, with page errors shown in the summary.' : 'Done.'), 'success');
+                setStatus(failed.length ? 'Done, with page errors shown in the summary.' : (qrPages ? 'Done. Manifest QRs verified; remaining pages checked with text/OCR fallback.' : 'Done.'), 'success');
             } else {
                 setStatus('No DN numbers found.', 'error');
             }
